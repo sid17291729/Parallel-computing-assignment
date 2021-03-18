@@ -7,7 +7,7 @@
 #include<fcntl.h>
 #include<unistd.h>
 #define MAXLEN 100
-
+//echo 0 | sudo tee /proc/sys/kernel/yama/ptrace_scope
 int eof;
 int get_file_size(int fd)
 {
@@ -37,14 +37,7 @@ void correct(int fd,int *line,int *count)
            return;
            (*count)=(*count)+1;
 
-        //    if(c==10||c==13)
-        //     printf("nl\n");
-        //     // else if(c=='\n')
-        //     // printf("nl\n");
-        //     // else
-        //     // printf("c=%c\n",c);
-        //     //printf("c=%d\n",c);
- 
+        
         }
         lseek(fd,-1,SEEK_CUR);
         (*count)=(*count)-1;
@@ -63,7 +56,13 @@ void correct(int fd,int *line,int *count)
     // if(c=='\n'||c==13)
     // (*line)=(*line)+1;
 }
-
+typedef struct node{
+    char *word;
+    int win;
+    int lno;
+    int wlen;
+    struct node *next;
+}NODE;
 
 int get_word(int fd,char *buf,int *wlen,int *line)
 {
@@ -132,6 +131,28 @@ void add_word(POS *p,int win,int ln,int wno)
         p->win=(int *)realloc(p->win,sizeof(int)*p->cap);
     }
 }
+void pl(NODE *head,int rank)
+{
+    NODE *t;
+    t=head;
+    while(t!=NULL)
+    {
+        printf("rank=%d, word=%s win=%d line=%d\n",rank,t->word,t->win,t->lno);
+        t=t->next;
+    }
+}
+int check(NODE *head,char *q_word[],int Q_size)
+{
+    NODE *t=head;
+    for(int i=0;i<Q_size;++i)
+    {
+        if(strcmp(q_word[i],t->word)!=0)
+            return 0;
+        t=t->next;
+    }
+    return 1;
+    
+}
 
 int main(int argc, char*argv[] )
 {
@@ -154,58 +175,194 @@ int main(int argc, char*argv[] )
     //printf("count=%d\n",count);
     int word_index=1;
     
-    
+    int AND=1;
     int Q_size=argc-2;
-    POS q[Q_size];
+    int qsz;
+    if(AND)
+    qsz=1;
+    else
+    qsz=Q_size;
+    POS q[qsz];
     char *q_word[Q_size];
-    
+    //printf("rank=%d,Qsize=%d\n",rank,Q_size);
+    if(AND)
+    pos_init(&q[0],0);
     for(int i=0;i<Q_size;++i)
-    {pos_init(&q[i],0);
+    {
       q_word[i]=(char*)malloc(sizeof(char)*MAXLEN);
+      
      strcpy(q_word[i],argv[i+2]);
     }
+    
+    char buf[MAXLEN];
 
-
-
-    while((count<local_size)||!eof)
-    {   char buf[MAXLEN];
-        buf[0]='\0';
-        int wlen=0;
+    switch (AND)
+    {   case 0:{
+        while((count<local_size)||!eof)
+        {   
+            buf[0]='\0';
+            int wlen=0;
         
-        int w_line=line;
-        int w_in=word_index;
-        int end=get_word(fd,buf,&wlen,&line);
-        buf[wlen]='\0';
+            int w_line=line;
+            int w_in=word_index;
+            int end=get_word(fd,buf,&wlen,&line);
+            buf[wlen]='\0';
        
-        if(w_line!=line)
-        word_index=1;
-        else
-        ++word_index;
-        for(int i=0;i<Q_size;++i)
-        {
-            if(strcmp(q_word[i],buf)==0)
+            if(w_line!=line)
+            word_index=1;
+            else
+            ++word_index;
+            for(int i=0;i<Q_size;++i)
             {
-             add_word(&q[i],w_in,w_line,i);
-             //printf("rank=%d, word=%s ,win=%d, ln=%d \n",rank,q_word[i],q[i].win[q[i].ind-1],q[i].ln[q[i].ind-1]);
+                if(strcmp(q_word[i],buf)==0)
+                {
+                 add_word(&q[i],w_in,w_line,i);
+                 //printf("rank=%d, word=%s ,win=%d, ln=%d \n",rank,q_word[i],q[i].win[q[i].ind-1],q[i].ln[q[i].ind-1]);
+                }
             }
-        }
-        if(end<0)
-        {
+             if(end<0)
+            {
             count=count+-1*end;
             //printf("rank= %d, wlen=%d \n",rank,wlen);
             
             //printf("rank= %d, first_word=%s line=%d \n",rank,buf,line);
             continue;
             //break;
+            }
+            count+=end;
+         //printf("rank= %d, count=%d \n",rank,count);
+         //buf[wlen]='\0';
+         //printf("rank= %d, first_word=%s  end=%d \n",rank,buf,end);
+            //printf("rank=%d, windex=%d\n",rank,word_index);
+    
         }
-        count+=end;
-        //printf("rank= %d, count=%d \n",rank,count);
-        //buf[wlen]='\0';
-        //printf("rank= %d, first_word=%s  end=%d \n",rank,buf,end);
-        //printf("rank=%d, windex=%d\n",rank,word_index);
-    
+        break;
+        }
+        case 1:
+        {  NODE *head;
+           NODE *tail; 
+           head=(NODE *)malloc(sizeof(NODE));
+           NODE *t=head;
+            for(int i=0;i<Q_size;++i)
+            {
+              buf[0]='\0';
+              int wlen=0;
+              int w_line=line;
+              int w_in=word_index;
+              int end=get_word(fd,buf,&wlen,&line);
+              buf[wlen]='\0';
+              if(w_line!=line)
+                word_index=1;
+              else
+                ++word_index;
+              
+              t->word=(char *)malloc(sizeof(char)*(wlen+1));
+              t->lno=w_line;
+              t->win=w_in;
+              strcpy(t->word,buf);
+              t->wlen=wlen;
+              if(i!=Q_size-1)
+              {
+                  t->next=(NODE *)malloc(sizeof(NODE));
+                  t=t->next;
+              }
+              else
+              {t->next=NULL;
+              tail=t;}
+              if(end<0)
+                {
+                 count=count+-1*end;
+                 break;
+                }
+                count+=end;
+            }
+            
+            while((count<local_size)||!eof)
+            {
+                if(check(head,q_word,Q_size))
+                {add_word(&q[0],head->win,head->lno,0);
+                }
+                
+
+                buf[0]='\0';
+                int wlen=0;
+                int w_line=line;
+                int w_in=word_index;
+                int end=get_word(fd,buf,&wlen,&line);
+                buf[wlen]='\0';
+              if(w_line!=line)
+                word_index=1;
+              else
+                ++word_index;
+
+                NODE *t=(NODE *)malloc(sizeof(NODE));
+                 t->word=(char *)malloc(sizeof(char)*(wlen+1));
+                 t->lno=w_line;
+                 t->win=w_in;
+                 strcpy(t->word,buf);
+                 t->wlen=wlen;
+                 tail->next=t;
+                 tail=t;
+                 NODE *f=head;
+                 head=head->next;
+                 free(f);
+
+                     if(end<0)
+                    {
+                    count=count+-1*end;
+                    continue;
+                    }
+                    count+=end;
+
+            }
+             int extra=1;
+             while(extra<=Q_size)
+             {
+                 if(check(head,q_word,Q_size))
+                  add_word(&q[0],head->win,head->lno,0);
+                
+                 buf[0]='\0';
+                int wlen=0;
+                int w_line=line;
+                int w_in=word_index;
+                int end=get_word(fd,buf,&wlen,&line);
+                buf[wlen]='\0';
+
+                if(w_line!=line)
+                 word_index=1;
+                else
+                 ++word_index;
+
+                 NODE *t=(NODE *)malloc(sizeof(NODE));
+                 t->word=(char *)malloc(sizeof(char)*(wlen+1));
+                 t->lno=w_line;
+                 t->win=w_in;
+                 strcpy(t->word,buf);
+                 t->wlen=wlen;
+                 tail->next=t;
+                 tail=t;
+                 NODE *f=head;
+                 head=head->next;
+                 free(f);
+                    
+                 ++extra;
+                 if(end<0)
+                 {
+                     if(check(head,q_word,Q_size))
+                  add_word(&q[0],head->win,head->lno,0);
+
+                  break;
+                 }
+             }
+                
+             //pl(head,rank);
+             for(int i=0;i<q[0].ind;++i)
+             printf("rank=%d, wno=%d, lno=%d\n",rank,q[0].win[i],q[0].ln[i]);
+             MPI_Finalize();
+            return 0;
+        }
+
     }
-    
     // if(rank==0)
     // {
     //     for(int i=0;i<num_tasks;++i)
