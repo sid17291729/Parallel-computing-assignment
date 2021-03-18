@@ -4,6 +4,7 @@
 #include<math.h>
 
 #define ROW_SEND_RECIEVE_TAG 1
+#define ROW_PROCESS_TAG 2
 MPI_Request null_req = MPI_REQUEST_NULL;
 
 void print_intro();
@@ -55,25 +56,47 @@ int main(){
     
     /*-----------------Cholesky decomposition------------------*/
     double*prev_row_recieve = (double*)malloc(sizeof(double)*n);
-    if(my_rank==0){
-        // do row op
-        //send row to all
-
-        //wait to recieve prev row
-        //perform subtract for all remaining rows
-
-
-    }
-    else{
-        //recieve prev row
-        //for all rows subtract
-        //check if now turn
-        //perform row op
-        //send row to all
+    int loc_process_row = 0; // current row number waiting to be processed in local buffer
+    while(loc_process_row*comm_sz+my_rank<n){
+        // recieve prev rows and perform subtractions for elements of the lower traingle
+        for(int i=0; i<my_rank;i++){
+            MPI_Recv(prev_row_recieve,n,MPI_DOUBLE,i, ROW_PROCESS_TAG, MPI_COMM_WORLD,MPI_STATUS_IGNORE);
+            for(int j=loc_process_row; j*comm_sz+my_rank<n;j++){
+                int row_num = j*comm_sz+my_rank; //row number in original matrix A
+                for(int k=row_num;k<n;k++){
+                    local_buffer[j][k]-=prev_row_recieve[row_num]*prev_row_recieve[k];
+                }
+            }
+        }
+        // process current row
+        double *cur_row = local_buffer[loc_process_row];
+        int row_num = loc_process_row*comm_sz+my_rank;
+        cur_row[row_num] = sqrt(cur_row[row_num]);
+        for(int i=cur_row+1;i<n;i++){
+            cur_row[i] = cur_row[i]/cur_row[row_num];
+        }
+        // send row to all processes
+        for(int i=0; i<comm_sz;i++){
+            if(i==my_rank) continue;
+            MPI_Isend(cur_row, n, MPI_DOUBLE, ROW_PROCESS_TAG, MPI_COMM_WORLD, &null_req);
+        }
+        //recieve later rows and process for it
+        for(int i=my_rank+1;i<comm_sz&&loc_process_row*comm_sz+i<n;i++){
+            MPI_Recv(prev_row_recieve,n,MPI_DOUBLE,i, ROW_PROCESS_TAG, MPI_COMM_WORLD,MPI_STATUS_IGNORE);
+            for(int j=loc_process_row+1; j*comm_sz+my_rank<n;j++){
+                int row_num = j*comm_sz+my_rank; //row number in original matrix A
+                for(int k=row_num;k<n;k++){
+                    local_buffer[j][k]-=prev_row_recieve[row_num]*prev_row_recieve[k];
+                }
+            }
+        }
+        loc_process_row++;
     }
     MPI_Barrier(MPI_COMM_WORLD);
     
-    
+    /*--------------collect all processed rows------------------*/
+    int 
+    for(int i=0; i<)
 
     MPI_Finalize();
     return 0;
