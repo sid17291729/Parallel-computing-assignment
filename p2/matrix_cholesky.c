@@ -24,50 +24,57 @@ int main(){
         print_intro();
         scanf("%d", &n);
         A = populate_matrix(n);
+        print_m(A,n);
     }
     MPI_Bcast(&n, 1, MPI_INT, 0, MPI_COMM_WORLD); // broadcast n to all processes
     
     /*----------- SENDING INPUT TO ALL PROCESSES ------------------*/
     num_indv_rows = n/comm_sz+1;
-    local_buffer = (double**)malloc(sizeof(double*)*num_indv_rows);
-    // printf("rank%d = %d\n",my_rank, num_indv_rows);
     if(my_rank==0){
-        int i=0;
+        local_buffer = (double**)malloc(sizeof(double*)*num_indv_rows);
+        int zero_rows=0;
         int next_dest = 0;
         for(int current_row=0; current_row<n;current_row++){
             if(next_dest==0){
-                local_buffer[i++] = A[current_row];
+                local_buffer[zero_rows++] = A[current_row];
             }
             else{
-                MPI_Send(A+current_row, n, MPI_DOUBLE,next_dest, ROW_SEND_RECIEVE_TAG, MPI_COMM_WORLD);
+                MPI_Send(A[current_row], n, MPI_DOUBLE,next_dest, ROW_SEND_RECIEVE_TAG, MPI_COMM_WORLD);
             }
             next_dest = (next_dest+1)%comm_sz;
         }
     }
     else{
+        local_buffer = (double**)malloc(sizeof(double*)*num_indv_rows);
         for(int i=0; i*comm_sz+my_rank<n;i++){      //check if next row to be recieved is within limits or not
             local_buffer[i] = (double*)malloc(sizeof(double)*n);
-            MPI_Recv(local_buffer+i, n,MPI_DOUBLE,0,ROW_SEND_RECIEVE_TAG, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            MPI_Recv(local_buffer[i], n,MPI_DOUBLE,0,ROW_SEND_RECIEVE_TAG, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
         }
     }
-    double loc_sum = 0;
+    MPI_Barrier(MPI_COMM_WORLD);
     
-    for(int i=0; i*comm_sz+my_rank<n;i++){
-        for(int j=0; j<n;j++){
-            loc_sum+=local_buffer[i][j];
-        }
+    /*-----------------Cholesky decomposition------------------*/
+    double*prev_row_recieve = (double*)malloc(sizeof(double)*n);
+    if(my_rank==0){
+        // do row op
+        //send row to all
+
+        //wait to recieve prev row
+        //perform subtract for all remaining rows
+
+
     }
-    // if(my_rank==0){
-    //     printf("rank0, %lf\n", loc_sum);
-    //     for(int rank=1; rank<comm_sz;rank++){
-    //         MPI_Recv(&loc_sum, 1,MPI_DOUBLE, rank, 0,MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-    //         printf("rank%d, %lf\n", rank, loc_sum);
-    //     }
-    // }
-    // else{
-    //     MPI_Send(&loc_sum, 1, MPI_DOUBLE,0,0,MPI_COMM_WORLD);
-    // }
+    else{
+        //recieve prev row
+        //for all rows subtract
+        //check if now turn
+        //perform row op
+        //send row to all
+    }
+    MPI_Barrier(MPI_COMM_WORLD);
     
+    
+
     MPI_Finalize();
     return 0;
 }
