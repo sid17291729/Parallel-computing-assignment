@@ -25,7 +25,7 @@ int main(){
         print_intro();
         scanf("%d", &n);
         A = populate_matrix(n);
-        print_m(A,n);
+        // print_m(A,n);
     }
     MPI_Bcast(&n, 1, MPI_INT, 0, MPI_COMM_WORLD); // broadcast n to all processes
     
@@ -70,17 +70,24 @@ int main(){
         }
         // process current row
         double *cur_row = local_buffer[loc_process_row];
-        int row_num = loc_process_row*comm_sz+my_rank;
-        cur_row[row_num] = sqrt(cur_row[row_num]);
-        for(int i=cur_row+1;i<n;i++){
-            cur_row[i] = cur_row[i]/cur_row[row_num];
+        int row_num_A = loc_process_row*comm_sz+my_rank; //position of row in A
+        cur_row[row_num_A] = sqrt(cur_row[row_num_A]);
+        for(int i=row_num_A+1;i<n;i++){
+            cur_row[i] = cur_row[i]/cur_row[row_num_A];
         }
         // send row to all processes
         for(int i=0; i<comm_sz;i++){
             if(i==my_rank) continue;
-            MPI_Isend(cur_row, n, MPI_DOUBLE, ROW_PROCESS_TAG, MPI_COMM_WORLD, &null_req);
+            MPI_Isend(cur_row, n, MPI_DOUBLE,i, ROW_PROCESS_TAG, MPI_COMM_WORLD, &null_req);
         }
-        //recieve later rows and process for it
+        //perform subtraction for all remaining rows in buffer before recieving rows from latter processes
+        for(int i=loc_process_row+1; i*comm_sz+my_rank<n;i++){
+            int row_num = i*comm_sz+my_rank;
+            for(int k=row_num;k<n;k++){
+                local_buffer[i][k]-= cur_row[row_num]*cur_row[k];
+            }
+        }
+        //recieve latter rows and process for it
         for(int i=my_rank+1;i<comm_sz&&loc_process_row*comm_sz+i<n;i++){
             MPI_Recv(prev_row_recieve,n,MPI_DOUBLE,i, ROW_PROCESS_TAG, MPI_COMM_WORLD,MPI_STATUS_IGNORE);
             for(int j=loc_process_row+1; j*comm_sz+my_rank<n;j++){
@@ -94,10 +101,31 @@ int main(){
     }
     MPI_Barrier(MPI_COMM_WORLD);
     
-    /*--------------collect all processed rows------------------*/
-    int 
-    for(int i=0; i<)
-
+    /*--------------COLLECT ALL PROCESSED ROWS------------------*/
+    if(my_rank==0){
+        int zero_rows = 0;
+        int next_source = 0;
+        for(int i=0; i<n;i++){
+            if(next_source==0){
+                A[i] = local_buffer[zero_rows++];
+            }
+            else{
+                MPI_Recv(A[i], n, MPI_DOUBLE,next_source, ROW_SEND_RECIEVE_TAG, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            }
+            next_source = (next_source+1)%comm_sz;
+        }
+    }
+    else{
+        for(int i=0; i*comm_sz+my_rank<n;i++){
+            MPI_Send(local_buffer[i], n, MPI_DOUBLE, 0, ROW_SEND_RECIEVE_TAG, MPI_COMM_WORLD);
+            free(local_buffer[i]);
+        }
+    }
+    free(local_buffer);
+    MPI_Barrier(MPI_COMM_WORLD);
+    if(my_rank==0){
+        print_m(A,n);
+    }
     MPI_Finalize();
     return 0;
 }
