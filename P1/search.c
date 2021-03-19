@@ -175,8 +175,12 @@ int main(int argc, char*argv[] )
     //printf("count=%d\n",count);
     int word_index=1;
     
-    int AND=1;
-    int Q_size=argc-2;
+    int AND=0;
+    if(strcmp(argv[2],"OR")==0)
+    AND=0;
+    else
+    AND=1;
+    int Q_size=argc-3;
     int qsz;
     if(AND)
     qsz=1;
@@ -188,10 +192,11 @@ int main(int argc, char*argv[] )
     if(AND)
     pos_init(&q[0],0);
     for(int i=0;i<Q_size;++i)
-    {
+    {  if(!AND)
+        pos_init(&q[i],i);
       q_word[i]=(char*)malloc(sizeof(char)*MAXLEN);
       
-     strcpy(q_word[i],argv[i+2]);
+     strcpy(q_word[i],argv[i+3]);
     }
     
     char buf[MAXLEN];
@@ -316,6 +321,8 @@ int main(int argc, char*argv[] )
 
             }
              int extra=1;
+             int temp_line=line;
+             int temp_w_ind=word_index;
              while(extra<=Q_size)
              {
                  if(check(head,q_word,Q_size))
@@ -323,15 +330,15 @@ int main(int argc, char*argv[] )
                 
                  buf[0]='\0';
                 int wlen=0;
-                int w_line=line;
-                int w_in=word_index;
-                int end=get_word(fd,buf,&wlen,&line);
+                int w_line=temp_line;
+                int w_in=temp_w_ind;
+                int end=get_word(fd,buf,&wlen,&temp_line);
                 buf[wlen]='\0';
 
-                if(w_line!=line)
-                 word_index=1;
+                if(w_line!=temp_line)
+                 temp_w_ind=1;
                 else
-                 ++word_index;
+                 ++temp_w_ind;
 
                  NODE *t=(NODE *)malloc(sizeof(NODE));
                  t->word=(char *)malloc(sizeof(char)*(wlen+1));
@@ -356,10 +363,10 @@ int main(int argc, char*argv[] )
              }
                 
              //pl(head,rank);
-             for(int i=0;i<q[0].ind;++i)
-             printf("rank=%d, wno=%d, lno=%d\n",rank,q[0].win[i],q[0].ln[i]);
-             MPI_Finalize();
-            return 0;
+            //  for(int i=0;i<q[0].ind;++i)
+            //  printf("rank=%d, wno=%d, lno=%d\n",rank,q[0].win[i],q[0].ln[i]);
+            //  MPI_Finalize();
+            // return 0;
         }
 
     }
@@ -395,7 +402,7 @@ int main(int argc, char*argv[] )
     int *win_send;
     if(rank!=0)
     {   
-        for(int i=0;i<Q_size;++i)
+        for(int i=0;i<qsz;++i)
         {  lno_send=(int *)malloc(sizeof(int)*q[i].ind);
            win_send=(int *)malloc(sizeof(int)*q[i].ind);
             for(int j=0;j<q[i].ind;++j)
@@ -428,10 +435,18 @@ int main(int argc, char*argv[] )
         
     }
     else
-    {   for(int i=0;i<Q_size;++i)
+    {   for(int i=0;i<qsz;++i)
        {     lno_send=(int *)malloc(sizeof(int)*100);
              win_send=(int *)malloc(sizeof(int)*100);
+             if(!AND)
              printf("Word=%s\n...\n",q_word[i]);
+             else
+             {printf("Word=");
+                 for(int j=0;j<Q_size;++j)
+                  printf("%s ",q_word[j]);
+
+                  printf("\n...\n");
+             }
               for(int j=0;j<q[i].ind;++j)
               {
                   printf("line no.=%d, word_index=%d\n",q[i].ln[j]+1,q[i].win[j]);
