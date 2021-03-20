@@ -8,6 +8,7 @@
 #include<unistd.h>
 #define MAXLEN 100
 //echo 0 | sudo tee /proc/sys/kernel/yama/ptrace_scope
+
 int eof;
 int get_file_size(int fd)
 {
@@ -20,12 +21,13 @@ void set_pointer(int fd,int offset)
 {
     lseek(fd,offset,SEEK_SET);
 }
-void correct(int fd,int *line,int *count)
+void correct(int fd,int *line,int *count,int rank)
 {
     lseek(fd,-1,SEEK_CUR);
     char c;
     read(fd,&c,1);
-   // printf("c=%d\n",c);
+    
+    //printf("rank=%d ,c=%c\n",rank,c);
     if(c==32||c==10||c==13)
     {   
         while(c==' '||c=='\n'||c==13)
@@ -45,11 +47,14 @@ void correct(int fd,int *line,int *count)
         return;
     }
     int x=read(fd,&c,1);
+    (*count)=(*count)+1;
     if(x==-1)
     return;
     while(c!=' '&&c!='\n')
-    {   (*count)=(*count)+1; 
+    {    
         x=read(fd,&c,1);
+        (*count)=(*count)+1;
+        
         if(x==-1)
         return;
     }
@@ -81,7 +86,7 @@ int get_word(int fd,char *buf,int *wlen,int *line)
        if(x==0)
        { eof=1;
         return -1*count;}
-       count=count+x;
+       count=count+1;
        if(c>='a'&&c<='z'||c>='A'&&c<='Z')
          {buf[ptr++]=c;
          *wlen=*wlen+1;}
@@ -89,13 +94,17 @@ int get_word(int fd,char *buf,int *wlen,int *line)
      }
      if(c=='\n')
      (*line)=(*line)+1;
-     while(c==' '||c=='\n'||c==13||c==',')
-     {x=read(fd,&c,1);
-     if(x==0){eof=1;
-      return -1*count;}
-     if(c=='\n')
-     (*line)=(*line)+1;
-     ++count;}
+     while(!(c>='a'&&c<='z'||c>='A'&&c<='Z'))
+     {  x=read(fd,&c,1);
+        if(x==0)
+        {   eof=1;
+            return -1*count;
+        }
+        if(c=='\n')
+        (*line)=(*line)+1;
+
+        ++count;
+     }
      --count;
      lseek(fd,-1,SEEK_CUR);
      return count;
@@ -169,9 +178,10 @@ int main(int argc, char*argv[] )
     int line=0;
     int count=0;
     if(rank!=0)
-    correct(fd,&line,&count);
+    correct(fd,&line,&count,rank);
     if(rank!=num_tasks-1)
     eof=1;
+    //printf("file size=%d, local suze=%d\n",file_size,local_size);
     //printf("count=%d\n",count);
     int word_index=1;
     
@@ -198,21 +208,29 @@ int main(int argc, char*argv[] )
       
      strcpy(q_word[i],argv[i+3]);
     }
-    
+    //printf("reached here\n");
     char buf[MAXLEN];
+    double time_start,time_end,time_diff,final_time;
+    MPI_Barrier(MPI_COMM_WORLD);
+    time_start=MPI_Wtime();
 
     switch (AND)
     {   case 0:{
+        int flag=1;
         while((count<local_size)||!eof)
         {   
             buf[0]='\0';
             int wlen=0;
-        
+          
             int w_line=line;
             int w_in=word_index;
             int end=get_word(fd,buf,&wlen,&line);
             buf[wlen]='\0';
-       
+            // if(flag)
+            // {
+            //     printf("Rank=%d,first word buf=%s\n",rank,buf);
+            //     flag=0;
+            // }
             if(w_line!=line)
             word_index=1;
             else
@@ -239,8 +257,10 @@ int main(int argc, char*argv[] )
          //buf[wlen]='\0';
          //printf("rank= %d, first_word=%s  end=%d \n",rank,buf,end);
             //printf("rank=%d, windex=%d\n",rank,word_index);
+            
     
         }
+        //printf("rank=%d, last word buf=%s,count=%d\n",rank,buf,count);
         break;
         }
         case 1:
@@ -367,9 +387,14 @@ int main(int argc, char*argv[] )
             //  printf("rank=%d, wno=%d, lno=%d\n",rank,q[0].win[i],q[0].ln[i]);
             //  MPI_Finalize();
             // return 0;
+          break;
         }
 
     }
+    time_end=MPI_Wtime();
+    time_diff=time_end-time_start;
+    
+    MPI_Reduce(&time_diff,&final_time,1,MPI_DOUBLE,MPI_MAX,0,MPI_COMM_WORLD);
     // if(rank==0)
     // {
     //     for(int i=0;i<num_tasks;++i)
@@ -377,14 +402,16 @@ int main(int argc, char*argv[] )
     //         MPI_SEND
     //     }
     // }
+
     int w_recv,line_recv;
     //MPI_Scan(&word_index,&w_recv,1,MPI_INT,MPI_SUM,MPI_COMM_WORLD);
+    if(num_tasks>1)
     MPI_Scan(&line,&line_recv,1,MPI_INT,MPI_SUM,MPI_COMM_WORLD);
-    if(rank==0)
+    if(rank==0&&num_tasks>1)
     {
         MPI_Send(&word_index,1,MPI_INT,1,0,MPI_COMM_WORLD);
     }
-    else
+    else if(rank!=0&&num_tasks>1)
     {
         MPI_Recv(&w_recv,1,MPI_INT,rank-1,0,MPI_COMM_WORLD,MPI_STATUS_IGNORE);
         if(rank!=num_tasks-1)
@@ -396,6 +423,7 @@ int main(int argc, char*argv[] )
     {//w_recv=w_recv-word_index;
      line_recv=line_recv-line;
     }
+    //printf("yes\n");
     //printf("rank =%d ,w_recv=%d, line_recv=%d\n",rank,w_recv,line_recv);
     int pword,pline;
     int *lno_send;
@@ -457,6 +485,7 @@ int main(int argc, char*argv[] )
              MPI_Recv(lno_send,100,MPI_INT,j,0,MPI_COMM_WORLD,MPI_STATUS_IGNORE);
              MPI_Recv(win_send,100,MPI_INT,j,0,MPI_COMM_WORLD,MPI_STATUS_IGNORE);
             // printf("rank=%d recieved= %d\n",rank,rc);
+            //printf("recieved from rank=%d\n",j);
              for(int k=0;k<sz;++k)
              {
                  printf("line no.=%d word index=%d\n",lno_send[k],win_send[k]);
@@ -471,6 +500,8 @@ int main(int argc, char*argv[] )
     //     printf("rank =%d ,word_index=%d, line_no=%d\n",rank,pword,pline);
 
     //printf("rank =%d ,wrcv=%d, lircv=%d\n",rank,w_recv,line_recv);
+    if(rank==0)
+    printf("Max time=%f\n",final_time);
     MPI_Finalize();
 
 }
