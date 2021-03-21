@@ -16,6 +16,7 @@ int main(){
     int n = 0, num_indv_rows;
     double **A, **local_buffer;
     int my_rank, comm_sz;
+    double start, finish, loc_elapsed, elapsed;
     
     MPI_Init(NULL,NULL);
     MPI_Comm_rank(MPI_COMM_WORLD, &my_rank);
@@ -53,7 +54,7 @@ int main(){
         }
     }
     MPI_Barrier(MPI_COMM_WORLD);
-    
+    start = MPI_Wtime();
     /*-----------------Cholesky decomposition------------------*/
     double*prev_row_recieve = (double*)malloc(sizeof(double)*n);
     int loc_process_row = 0; // current row number waiting to be processed in local buffer
@@ -99,6 +100,9 @@ int main(){
         }
         loc_process_row++;
     }
+    finish = MPI_Wtime();
+    loc_elapsed = finish-start;
+    MPI_Reduce(&loc_elapsed, &elapsed, 1, MPI_DOUBLE,MPI_MAX,0,MPI_COMM_WORLD);
     MPI_Barrier(MPI_COMM_WORLD);
     
     /*--------------COLLECT ALL PROCESSED ROWS------------------*/
@@ -125,6 +129,7 @@ int main(){
     MPI_Barrier(MPI_COMM_WORLD);
     if(my_rank==0){
         print_m(A,n);
+        printf("TIME TAKEN: %lf ms\n", elapsed*1000);
     }
     MPI_Finalize();
     return 0;
@@ -148,7 +153,7 @@ double**populate_matrix(int n){
 void print_m(double**A, int n){
     for(int i=0; i<n;i++){
         for(int j=0;j<n;j++){
-            printf("%3.2f ",A[i][j]);
+            printf("%5.2f ",A[i][j]);
         }
         printf("\n");
     }
