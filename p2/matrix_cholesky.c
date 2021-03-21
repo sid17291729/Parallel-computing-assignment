@@ -26,13 +26,13 @@ int main(){
         print_intro();
         scanf("%d", &n);
         A = populate_matrix(n);
-        // print_m(A,n);
     }
     MPI_Bcast(&n, 1, MPI_INT, 0, MPI_COMM_WORLD); // broadcast n to all processes
     
     /*----------- SENDING INPUT TO ALL PROCESSES ------------------*/
     num_indv_rows = n/comm_sz+1;
     if(my_rank==0){
+        // process zero sends rows to all processes
         local_buffer = (double**)malloc(sizeof(double*)*num_indv_rows);
         int zero_rows=0;
         int next_dest = 0;
@@ -43,10 +43,11 @@ int main(){
             else{
                 MPI_Send(A[current_row], n, MPI_DOUBLE,next_dest, ROW_SEND_RECIEVE_TAG, MPI_COMM_WORLD);
             }
-            next_dest = (next_dest+1)%comm_sz;
+            next_dest = (next_dest+1)%comm_sz;  // since rows are sent in a round robin way, next row goes to next process
         }
     }
     else{
+        // other processes recieves there data
         local_buffer = (double**)malloc(sizeof(double*)*num_indv_rows);
         for(int i=0; i*comm_sz+my_rank<n;i++){      //check if next row to be recieved is within limits or not
             local_buffer[i] = (double*)malloc(sizeof(double)*n);
