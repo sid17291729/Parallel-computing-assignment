@@ -7,14 +7,6 @@
 #include <time.h>
 #include <mpi.h>
 
-const int UNSET_ELEMENT = -1;
-
-typedef struct Set {
-	int elements;
-	int* parent;
-	int* rank;
-} Set;
-
 typedef struct WeightedGraph {
 	int edges;
 	int vertices;
@@ -75,52 +67,27 @@ void printWeightedGraph(const WeightedGraph* graph) {
 	printf("------------------------------------------------\n");
 }
 
-void newSet(Set* set, const int elements) {
-	set->elements = elements;
-	set->parent = (int*) malloc(elements * sizeof(int)); // maintain parent 
-	memset(set->parent, UNSET_ELEMENT, elements * sizeof(int));
-	set->rank = (int*) calloc(elements, sizeof(int)); //  maintain rank
-}
 
-int findSet(const Set* set, const int vertex) {
-	if (set->parent[vertex] == UNSET_ELEMENT) {
+int findSet(int* parent, const int vertex) {
+	if (parent[vertex] == -1) {
 		return vertex;
 	} 
 	else {
-		set->parent[vertex] = findSet(set,set->parent[vertex]);
-		return set->parent[vertex];
+		parent[vertex] = findSet(parent,parent[vertex]);
+		return parent[vertex];
 	}
 }
 
-void unionSet(Set* set, const int parent1, const int parent2) {
-	int root1 = findSet(set, parent1);
-	int root2 = findSet(set, parent2);
+void unionSet(int* parent, const int parent1, const int parent2) {
+	int root1 = findSet(parent, parent1);
+	int root2 = findSet(parent, parent2);
 
 	if (root1 == root2) {
 		return;
-	} 
-	// Attach smaller rank tree under root of high
-	else if (set->rank[root1] < set->rank[root2]) {
-		set->parent[root1] = root2;
-	} 
-	else if (set->rank[root1] > set->rank[root2]) {
-		set->parent[root2] = root1;
-	} 
-	// If ranks are same, then make one as root and 
-    // increment its rank by one
-	else {
-		set->parent[root1] = root2;
-		set->rank[root2] = set->rank[root1] + 1;
 	}
-}
-
-void copyEdge(int* to, int* from) {
-	memcpy(to, from, 3 * sizeof(int));
-}
-
-void deleteSet(Set* set) {
-	free(set->parent);
-	free(set->rank);
+	else {
+		parent[root1] = root2;
+	}
 }
 
 //cleanup graph data
@@ -128,9 +95,6 @@ void deleteWeightedGraph(WeightedGraph* graph) {
 	free(graph->edgeList);
 }
 
-void distrbuteEdges(int* edgeList,int* edgeList_pp,int nOEdges){
-    int rank,size;
-}
 
 void mst_sollins(const WeightedGraph* graph,WeightedGraph* mst){
     int rank,size;
@@ -145,17 +109,13 @@ void mst_sollins(const WeightedGraph* graph,WeightedGraph* mst){
     
     MPI_Bcast(&nOEdges, 1, MPI_INT, 0, MPI_COMM_WORLD);
 	MPI_Bcast(&nOVertices, 1, MPI_INT, 0, MPI_COMM_WORLD);
-    //printf("%d %d %d\n",nOVertices,nOEdges,rank);
-    MPI_Barrier(MPI_COMM_WORLD);
-    //No Error Checkpoint
 
     //Distributing edge list amongst processes
-    //*START*
     int myCount=0;
     int *myEdgeList=NULL;
     if(rank==0){
         myCount=nOEdges/size;
-        if(rank<nOEdges/size)
+        if(rank<nOEdges%size)
             myCount++;
         myEdgeList= (int*)malloc(myCount*3*sizeof(int));
         int *disp=(int*)malloc(size*sizeof(int));
@@ -164,53 +124,46 @@ void mst_sollins(const WeightedGraph* graph,WeightedGraph* mst){
         disp[0]=0;
         for(int i=1;i<size;i++){
             if(i<nOEdges%size){
-                count[i]=myCount*3;
+                count[i]=((nOEdges/size)+1)*3;
             }
             else{
-                count[i]=(myCount-1)*3;
+                count[i]=(nOEdges/size)*3;
             }
             disp[i]=disp[i-1]+count[i-1];
-            //printf("%d %d\n",count[i],disp[i]);
         }
         MPI_Scatterv(graph->edgeList,count,disp,MPI_INT,myEdgeList,myCount*3,MPI_INT,0,MPI_COMM_WORLD);
     }
     else{
         myCount=nOEdges/size;
-        if(rank<nOEdges/size)
+        if(rank<nOEdges%size)
             myCount++;
         myEdgeList= (int*)malloc(myCount*3*sizeof(int));
         MPI_Scatterv(NULL, NULL, NULL, MPI_INT,myEdgeList,myCount*3,MPI_INT,0,MPI_COMM_WORLD);        
     }
-    //*END*
-    //No Error Checkpoint
-    //printf("done1\n");
 
-    long double start = MPI_Wtime();
-    Set* set = &(Set ) { .elements = 0, .parent = NULL, .rank =NULL };
-	newSet(set, nOVertices);
-
+    //Initialization
+	int *parent=(int*)malloc(nOVertices*sizeof(int));
+    for(int i=0;i<nOVertices;i++){
+        parent[i]=-1;
+    }
+	long double start = MPI_Wtime();
     int mstEdges = 0;
-	int* myClosestEdge = (int*)malloc((nOVertices * 3)* sizeof(int));
-	int* closestEdgeRecieved;
-	if (isParallel) {
-		closestEdgeRecieved = (int*) malloc(nOVertices * 3 * sizeof(int));
-	}
-    //No Error Checkpoint
-    //printf("done2\n");
+	int* myClosestEdge = (int*)malloc((nOVertices*3)* sizeof(int));
+	int* closestEdgeRecieved= (int*) malloc(nOVertices*3*sizeof(int));
 
+	//Main loop
 	for (int i = 1; i < nOVertices && mstEdges < nOVertices - 1; i *= 2) {
-		// reset all closestEdge
-        //printf("%d %d\n",i,rank);
+		//reset all myClosestEdge
         MPI_Barrier(MPI_COMM_WORLD);
 		for (int j = 0; j < nOVertices; j++) {
-			myClosestEdge[j*3+2] = INT_MAX;
+			myClosestEdge[j*3+2] =INT_MAX;
         }
-		// find closestEdge
+		//find closest edge across myEdgeList
 		for (int j = 0; j < myCount; j++) {
 			int* currentEdge = &myEdgeList[j * 3];
-			int root1 =findSet(set, currentEdge[0]),root2= findSet(set, currentEdge[1]);
+			int root1 =findSet(parent, currentEdge[0]),root2= findSet(parent, currentEdge[1]);
 
-			// eventually update closestEdge
+			//eventually update myClosestEdge
 			if (root1 != root2) {
                 if(currentEdge[2]<myClosestEdge[root1*3+2]){
                     myClosestEdge[root1*3]=currentEdge[0];
@@ -224,94 +177,92 @@ void mst_sollins(const WeightedGraph* graph,WeightedGraph* mst){
                 }
 			}
 		}
-        //No Error Checkpoint
-
+		//Compare and store results
         MPI_Barrier(MPI_COMM_WORLD);
+		int from;
+		int to;
+		for (int step = 1; step < size; step *= 2) {
+			if (rank % (2 * step) == 0) {
+				from = rank + step;
+				if (from < size) {
+					MPI_Recv(closestEdgeRecieved, nOVertices * 3,MPI_INT,from,0,MPI_COMM_WORLD,&stat);
 
-		if (isParallel) {
-			int from;
-			int to;
-			for (int step = 1; step < size; step *= 2) {
-				if (rank % (2 * step) == 0) {
-					from = rank + step;
-					if (from < size) {
-						MPI_Recv(closestEdgeRecieved, nOVertices * 3,MPI_INT,from,0,MPI_COMM_WORLD,&stat);
-
-						// combine all closestEdge parts
-						for (int i = 0; i < nOVertices; i++) {
-							int v = i * 3;
-							if (closestEdgeRecieved[v+2]<myClosestEdge[v+2]) {
-								myClosestEdge[v]=closestEdgeRecieved[v];
-                                myClosestEdge[v+1]=closestEdgeRecieved[v+1];
-                                myClosestEdge[v+2]=closestEdgeRecieved[v+2];
-							}
+					//combine all closestEdge parts
+					for (int i = 0; i < nOVertices; i++) {
+						int v = i * 3;
+						if (closestEdgeRecieved[v+2]<myClosestEdge[v+2]) {
+							myClosestEdge[v]=closestEdgeRecieved[v];
+							myClosestEdge[v+1]=closestEdgeRecieved[v+1];
+							myClosestEdge[v+2]=closestEdgeRecieved[v+2];
 						}
 					}
-				} 
-				else if (rank % step == 0) {
-					to = rank - step;
-					MPI_Send(myClosestEdge,nOVertices*3,MPI_INT, to,0,MPI_COMM_WORLD);
 				}
+			} 
+			else if (rank % step == 0) {
+				to = rank - step;
+				MPI_Send(myClosestEdge,nOVertices*3,MPI_INT, to,0,MPI_COMM_WORLD);
 			}
-			// publish all closestEdge parts
-			MPI_Bcast(myClosestEdge, nOVertices * 3, MPI_INT, 0,MPI_COMM_WORLD);
 		}
-            // add new edges to MST
-        for (int j = 0; j <nOVertices; j++) {
-            if (myClosestEdge[j*3+2] != INT_MAX) {
-                int from = myClosestEdge[j * 3];
-                int to = myClosestEdge[j * 3 + 1];
-                //printf("from %d to %d\n",from,to);
-                // prevent adding the same edge twice
-                if (findSet(set, from) != findSet(set, to)) {
-                    if (rank == 0) {
-                        copyEdge(&mst->edgeList[mstEdges * 3],&myClosestEdge[j * 3]);
-                    }
-                    mstEdges++;
-                    unionSet(set, from, to);
-                }
-            }
-        }
+
+        //add new edges to MST
+		if(rank==0){
+			for (int j = 0; j <nOVertices; j++) {
+            	if (myClosestEdge[j*3+2] != INT_MAX) {
+                	int from = myClosestEdge[j * 3];
+                	int to = myClosestEdge[j * 3 + 1];
+                	if (findSet(parent, from) != findSet(parent, to)) {
+                    	if (rank == 0) {
+                        	mst->edgeList[mstEdges*3]=myClosestEdge[j*3];
+							mst->edgeList[mstEdges*3+1]=myClosestEdge[j*3+1];
+							mst->edgeList[mstEdges*3+2]=myClosestEdge[j*3+2];
+                    	}
+                    	mstEdges++;
+                    	unionSet(parent,from, to);
+                	}
+            	}
+        	}
+		}
+		MPI_Bcast(parent,nOVertices,MPI_INT,0,MPI_COMM_WORLD);
+		MPI_Bcast(&mstEdges,1,MPI_INT,0,MPI_COMM_WORLD);
 	}
     long double maxtime=0;
     start=MPI_Wtime()-start;
     MPI_Reduce(&start,&maxtime,1,MPI_LONG_DOUBLE,MPI_MAX,0,MPI_COMM_WORLD);
     if(rank==0)
         printf("Time elapsed: %.12Lf s\n", maxtime);
-	// clean up
-	deleteSet(set);
+	
+	//clean up
+	free(parent);
 	free(myClosestEdge);
-	if (isParallel) {
-		free(closestEdgeRecieved);
-		free(myEdgeList);
-	}
+	free(closestEdgeRecieved);
+	free(myEdgeList);
 }
 
 int main(int argc, char* argv[]) {
-	// MPI variables and initialization
+	//MPI variables and initialization
 	int rank;
 	int size;
 	MPI_Init(&argc, &argv);
 	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 	MPI_Comm_size(MPI_COMM_WORLD, &size);
-	// graph Variables
+	//graph Variables
 	WeightedGraph* graph = &(WeightedGraph ) { .edges = 0, .vertices = 0,.edgeList = NULL };
 	WeightedGraph* mst = &(WeightedGraph ) { .edges = 0, .vertices = 0,	.edgeList = NULL };
 	if (rank == 0) {
-		// read the maze file and store it in the graph
+		//read the maze file and store it in the graph
 		readGraphFile(graph, argv[1]);
-		// print the edges of the read graph
-		printf("Original Graph:\n");
-		printWeightedGraph(graph);
+		//print the edges of the read graph(optional)
+		//printf("Original Graph:\n");
+		//printWeightedGraph(graph);
 		newWeightedGraph(mst, graph->vertices, graph->vertices - 1);
 	}
 	
 	// use Boruvka's algorithm
 	mst_sollins(graph, mst);
 	if (rank == 0) {		
-		// print the edges of the MST
-		printf("Minimum Spanning Tree (Boruvka):\n");
-		printWeightedGraph(mst);
+		//print the edges of the MST(optional)
+		//printf("Minimum Spanning Tree (Boruvka):\n");
+		//printWeightedGraph(mst);
 		unsigned long weightMST = 0;
 		for (int i = 0; i < mst->edges; i++) {
 			weightMST += mst->edgeList[i * 3 + 2];
@@ -321,8 +272,6 @@ int main(int argc, char* argv[]) {
 		deleteWeightedGraph(graph);
 		deleteWeightedGraph(mst);
 	}
-    //start=MPI_Wtime()-start;
-    //printf("Time elapsed=%f",start);
 	MPI_Finalize();
 	return EXIT_SUCCESS;
 }
