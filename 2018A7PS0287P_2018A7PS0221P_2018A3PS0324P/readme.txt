@@ -14,4 +14,4 @@ P2:
 P3:
 1. mst_sollins.c
 2. P3.pdf [design document]
-
+3. makefile
