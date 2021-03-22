@@ -5,6 +5,7 @@
 #include<sys/types.h>
 #include<sys/stat.h>
 #include<fcntl.h>
+#include<ctype.h>
 #include<unistd.h>
 #define MAXLEN 100
 //echo 0 | sudo tee /proc/sys/kernel/yama/ptrace_scope
@@ -90,14 +91,14 @@ int get_word(int fd,char *buf,int *wlen,int *line)
        { eof=1;
         return -1*count;}
        count=count+1;
-       if(c>='a'&&c<='z'||c>='A'&&c<='Z')
+       if(isalnum(c))
          {buf[ptr++]=c;
          *wlen=*wlen+1;}
 
      }
      if(c=='\n')
      (*line)=(*line)+1;
-     while(!(c>='a'&&c<='z'||c>='A'&&c<='Z'))
+     while(!(isalnum(c)))
      {  x=read(fd,&c,1);
         if(x==0)
         {   eof=1;
