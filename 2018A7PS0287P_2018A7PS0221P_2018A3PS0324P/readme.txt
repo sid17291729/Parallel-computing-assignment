@@ -1,3 +1,8 @@
+Students in group:
+2018A7PS0287P - Siddharth Awasthi
+2018A7PS0221P - Saransh Jindal
+2018A3PS0324P - Ayush Jain
+
 The following files are included as solutions for each problem.
 
 P1:
