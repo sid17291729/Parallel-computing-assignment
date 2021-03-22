@@ -8,7 +8,7 @@
 MPI_Request null_req = MPI_REQUEST_NULL;
 
 void print_intro();
-double** populate_matrix(int n);
+double** populate_matrix(int *n);
 void print_m(double**,int);
 
 
@@ -24,8 +24,7 @@ int main(){
     /*---------GET INPUT MATRIX A----------*/
     if(my_rank==0){
         print_intro();
-        scanf("%d", &n);
-        A = populate_matrix(n);
+        A = populate_matrix(&n);
     }
     MPI_Bcast(&n, 1, MPI_INT, 0, MPI_COMM_WORLD); // broadcast n to all processes
     
@@ -137,17 +136,26 @@ int main(){
 }
 
 
-double**populate_matrix(int n){
+double**populate_matrix(int *n){
     double**A;
     double x=0;
-    A = (double**)malloc(sizeof(double*)*n);
-    for(int i=0;i<n;i++){
-        A[i] = (double*)malloc(sizeof(double)*n);
-        for(int j=0;j<n;j++){  
-            scanf("%lf", &x);
+    printf("Reading from test_matrix.txt\n");;
+    FILE*f = fopen("test_matrix.txt", "r");
+    if(!f){
+        printf("Error opening file\n");
+        printf("Write the matrix in test_matrix.txt in the specified format. Aborting\n");
+        MPI_Abort(MPI_COMM_WORLD,1);
+    }
+    fscanf(f,"%d", n);
+    A = (double**)malloc(sizeof(double*)*(*n));
+    for(int i=0;i<*n;i++){
+        A[i] = (double*)malloc(sizeof(double)*(*n));
+        for(int j=0;j<*n;j++){  
+            fscanf(f,"%lf", &x);
             A[i][j] = j>=i?x:0;
         }
     }
+    fclose(f);
     return A;
 }
 
@@ -166,5 +174,5 @@ void print_intro(){
     printf("Enter the matrix in the following way:\n");
     printf("First row should have number of rows and cols in the square matrix [n]\n");
     printf("This must be followed by n lines with n numbers in each line. Eg:\n");
-    printf("3\n1 2 4\n2 13 23\n4 23 77\nStart>>\n");
+    printf("3\n1 2 4\n2 13 23\n4 23 77\n");
 }
